@@ -2,7 +2,6 @@ import asyncio
 import bleak
 import device_model
 import numpy as np
-import os
 from tensorflow.keras.models import load_model
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
@@ -82,10 +81,8 @@ def updateData(DeviceModel):
 
     global data_buffer, gesture_detected
 
-    os.system("pause")
-
     if len(data_buffer) == 0:
-        for _ in tqdm(range(0,3), desc="Iniciando coleta em 4 segundos"):
+        for _ in tqdm(range(0, 5), desc="Iniciando coleta em 5 segundos"):
             sleep(1)
 
     data_buffer.append(
