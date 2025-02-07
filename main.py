@@ -83,18 +83,18 @@ class DataCollector:
         self.test_data["predicted"].clear()
         await device.closeDevice()  # Chamado *depois* de coletar todos os dados
 
-    def updateData(self):
+    def updateData(self, DeviceModel):
         if (
-            self.device.get("AccX") is not None
+            DeviceModel.get("AccX") is not None
         ):  # Verifica se os dados existem antes de adicionar
             self.data_buffer.append(
                 [
-                    self.device.get("AccX"),
-                    self.device.get("AccY"),
-                    self.device.get("AccZ"),
-                    self.device.get("AsX"),
-                    self.device.get("AsY"),
-                    self.device.get("AsZ"),
+                    DeviceModel.get("AccX"),
+                    DeviceModel.get("AccY"),
+                    DeviceModel.get("AccZ"),
+                    DeviceModel.get("AsX"),
+                    DeviceModel.get("AsY"),
+                    DeviceModel.get("AsZ"),
                 ]
             )
 
@@ -132,14 +132,12 @@ class DataCollector:
             # Plotar os dados
             self.plot_data(data_array, gesture)
             self.data_buffer.clear()
+            self.gesture_detected = None
         else:
             print(
                 f"Dados insuficientes para classificação: {len(self.data_buffer)} amostras."
             )
             # sleep(0.01)  # Evita uso excessivo de CPU
-
-        self.data_buffer.clear()
-        self.gesture_detected = None
 
     def plot_data(self, data_array, gesture):
         plt.figure(figsize=(10, 6))
@@ -164,12 +162,15 @@ class DataCollector:
         await self.scanByMac("DF:DE:EA:97:12:6F")
 
         if self.BLEDevice is not None:
-            self.device = device_model.DeviceModel("MyBle5.0", self.BLEDevice, self.updateData)
+            self.device = device_model.DeviceModel(
+                "MyBle5.0", self.BLEDevice, self.updateData
+            )
             await self.device.openDevice()
+            await self.collect_and_classify(self.device, real=[i for i in range(8)])
         else:
             print("This BLEDevice was not found!!")
 
 
 if __name__ == "__main__":
-    data_collector = DataCollector.__new__(DataCollector)
+    data_collector = DataCollector()
     asyncio.run(data_collector.main())
