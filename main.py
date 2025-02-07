@@ -1,170 +1,175 @@
 import asyncio
 import bleak
 import device_model
-import numpy as np
-from tensorflow.keras.models import load_model
-from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
-from time import sleep
+import numpy as np
+import pandas as pd
+import seaborn as sns
+from sklearn.preprocessing import StandardScaler
+from tensorflow.keras.models import load_model
 from tqdm import tqdm
 
-# 扫描到的设备 Scanned devices
-devices = []
 
-# 蓝牙设备 BLEDevice
-BLEDevice = None
+class DataCollector:
+    def __init__(self):
+        self.device = None
+        self.devices = list()
+        self.BLEDevice = None
+        self.data_buffer = list()
+        self.gesture_detected = None
+        self.BLEDevice = None
+        self.MODEL_PATH = "modelo_gestos.h5"
+        self.FEATURE_COUNT = 6
+        self.WINDOW_SIZE = 150
+        self.scaler = StandardScaler()
+        self.scaler.mean_ = np.array(
+            [0.97076255, 0.9445494, 0.97515005, 0.9454171, 0.94420373, 0.9554501]
+        )
+        self.scaler.scale_ = np.array(
+            [0.9701005, 0.94347113, 0.98497283, 0.9526623, 0.9534778, 0.96096903]
+        )
+        self.data_buffer = list()
+        self.test_data = dict(real=list(), predicted=list())
+        self.model = load_model(self.MODEL_PATH)
 
-MODEL_PATH = "modelo_gestos.h5"
-FEATURE_COUNT = 6
-WINDOW_SIZE = 150
-
-# Inicializa o scaler (substitua pelos valores usados no treinamento)
-scaler = StandardScaler()
-scaler.mean_ = np.array(
-    [0.97076255, 0.9445494, 0.97515005, 0.9454171, 0.94420373, 0.9554501]
-)
-scaler.scale_ = np.array(
-    [0.9701005, 0.94347113, 0.98497283, 0.9526623, 0.9534778, 0.96096903]
-)
-
-# Buffer para armazenar os dados
-data_buffer = list()
-
-# Variável para armazenar o gesto detectado
-gesture_detected = None
-
-
-# 扫描蓝牙设备并过滤名称
-# Scan Bluetooth devices and filter names
-async def scan():
-    global devices
-    global BLEDevice
-    find = []
-    print("Searching for Bluetooth devices......")
-    try:
-        devices = await bleak.BleakScanner.discover(timeout=20.0)
-        print("Search ended")
-        for d in devices:
-            if d.name is not None and "WT" in d.name:
-                find.append(d)
-                print(d)
-        if len(find) == 0:
-            print("No devices found in this search!")
-        else:
-            user_input = input(
-                "Please enter the Mac address you want to connect to (e.g. DF:E9:1F:2C:BD:59)："
-            )
+    async def scan(self, devices):
+        find = list()
+        print("Searching for Bluetooth devices......")
+        try:
+            self.devices = await bleak.BleakScanner.discover(timeout=20.0)
+            print("Search ended")
             for d in devices:
-                if d.address == user_input:
-                    BLEDevice = d
-                    break
-    except Exception as ex:
-        print("Bluetooth search failed to start")
-        print(ex)
+                if d.name is not None and "WT" in d.name:
+                    find.append(d)
+                    print(d)
+            if len(find) == 0:
+                print("No devices found in this search!")
+            else:
+                user_input = input(
+                    "Please enter the Mac address you want to connect to (e.g. DF:E9:1F:2C:BD:59)："
+                )
+                for d in devices:
+                    if d.address == user_input:
+                        self.BLEDevice = d
+                        break
+        except Exception as ex:
+            print("Bluetooth search failed to start")
+            print(ex)
 
+    async def scanByMac(self, device_mac):
+        print("Searching for Bluetooth devices......")
+        self.BLEDevice = await bleak.BleakScanner.find_device_by_address(
+            device_mac, timeout=20
+        )
 
-# 指定MAC地址搜索并连接设备
-# Specify MAC address to search and connect devices
-async def scanByMac(device_mac):
-    global BLEDevice
-    print("Searching for Bluetooth devices......")
-    BLEDevice = await bleak.BleakScanner.find_device_by_address(device_mac, timeout=20)
+    async def collect_and_classify(self, device, real):
+        for gesture in real:
+            for j in range(0, 2):  # 2 coletas por gesto
+                self.data_buffer.clear()  # Limpa o buffer *antes* de coletar cada gesto
+                print(
+                    f"Iniciando coleta do gesto {gesture} (Coleta {j+1}) em 5 segundos"
+                )
+                for _ in tqdm(range(0, 5)):
+                    await asyncio.sleep(1)  # Use asyncio.sleep
 
+                while len(self.data_buffer) < self.WINDOW_SIZE:
+                    await asyncio.sleep(0.01)  # Pausa para não consumir muitos recursos
 
-# 数据更新时会调用此方法 This method will be called when data is updated
-def updateData(DeviceModel):
-    # 直接打印出设备数据字典 Directly print out the device data dictionary
-    # print(DeviceModel.deviceData)
+                self.classify(gesture)
+                self.data_buffer.clear()  # Limpa o buffer *após* classificar cada gesto
 
-    # 获得X轴加速度 Obtain X-axis acceleration
-    # print(DeviceModel.get("AccX"))
+        self.plot_confusion_matrix(self.test_data)
+        self.test_data["real"].clear()
+        self.test_data["predicted"].clear()
+        await device.closeDevice()  # Chamado *depois* de coletar todos os dados
 
-    global data_buffer, gesture_detected
+    def updateData(self):
+        if (
+            self.device.get("AccX") is not None
+        ):  # Verifica se os dados existem antes de adicionar
+            self.data_buffer.append(
+                [
+                    self.device.get("AccX"),
+                    self.device.get("AccY"),
+                    self.device.get("AccZ"),
+                    self.device.get("AsX"),
+                    self.device.get("AsY"),
+                    self.device.get("AsZ"),
+                ]
+            )
 
-    if len(data_buffer) == 0:
-        for _ in tqdm(range(0, 5), desc="Iniciando coleta em 5 segundos"):
-            sleep(1)
+    def classify(self, gesture: int):
+        if len(self.data_buffer) >= self.WINDOW_SIZE:
+            self.test_data["real"].append(gesture)
+            print("Coleta concluída. Processando dados...")
+            print(f"Número de amostras coletadas: {len(self.data_buffer)}")
+            # Convert to numpy array
+            data_array = np.array(self.data_buffer, dtype=np.float32)
 
-    data_buffer.append(
-        [
-            DeviceModel.get("AccX"),
-            DeviceModel.get("AccY"),
-            DeviceModel.get("AccZ"),
-            DeviceModel.get("AsX"),
-            DeviceModel.get("AsY"),
-            DeviceModel.get("AsZ"),
-        ]
-    )
+            # Mostrar dados brutos para depuração
+            print("Dados brutos (primeiras 5 amostras):")
+            print(data_array[:5])
 
-    if len(data_buffer) >= WINDOW_SIZE:
-        classify()
+            # Normaliza os dados
+            data_normalized = self.scaler.transform(data_array)
 
+            # Mostrar dados normalizados para depuração
+            print("Dados normalizados (primeiras 5 amostras):")
+            print(data_normalized[:5])
 
-def classify():
-    global data_buffer, gesture_detected
-    if len(data_buffer) >= WINDOW_SIZE:
-        print("Coleta concluída. Processando dados...")
-        print(f"Número de amostras coletadas: {len(data_buffer)}")
-        # Convert to numpy array
-        data_array = np.array(data_buffer, dtype=np.float32)
+            # Classifica o gesto
+            data_normalized = data_normalized.reshape(
+                1, self.WINDOW_SIZE, self.FEATURE_COUNT
+            )
+            prediction = self.model.predict(data_normalized)
+            print("Distribuição das probabilidades:", prediction)
 
-        # Mostrar dados brutos para depuração
-        print("Dados brutos (primeiras 5 amostras):")
-        print(data_array[:5])
+            gesture = np.argmax(prediction, axis=1)[0]
+            gesture_detected = gesture
+            self.test_data["predicted"].append(gesture_detected)
+            print(f"Gesto detectado: {gesture}")
 
-        # Normaliza os dados
-        data_normalized = scaler.transform(data_array)
+            # Plotar os dados
+            self.plot_data(data_array, gesture)
+            self.data_buffer.clear()
+        else:
+            print(
+                f"Dados insuficientes para classificação: {len(self.data_buffer)} amostras."
+            )
+            # sleep(0.01)  # Evita uso excessivo de CPU
 
-        # Mostrar dados normalizados para depuração
-        print("Dados normalizados (primeiras 5 amostras):")
-        print(data_normalized[:5])
+        self.data_buffer.clear()
+        self.gesture_detected = None
 
-        # Classifica o gesto
-        data_normalized = data_normalized.reshape(1, WINDOW_SIZE, FEATURE_COUNT)
-        prediction = model.predict(data_normalized)
-        print("Distribuição das probabilidades:", prediction)
+    def plot_data(self, data_array, gesture):
+        plt.figure(figsize=(10, 6))
+        x_data = range(len(data_array))
+        for i in range(self.FEATURE_COUNT):
+            plt.plot(x_data, data_array[:, i], label=f"Feature {i + 1}")
+        plt.legend()
+        plt.xlabel("Amostra")
+        plt.ylabel("Valor")
+        plt.title(f"Dados do Sensor - Gesto Detectado: {gesture}")
+        plt.show()
 
-        gesture = np.argmax(prediction, axis=1)[0]
-        gesture_detected = gesture
-        print(f"Gesto detectado: {gesture}")
+    @staticmethod
+    def plot_confusion_matrix(results_data: dict):
+        df = pd.DataFrame(results_data, columns=["real", "predicted"])
+        conf = pd.crosstab(
+            df["real"], df["predicted"], rownames=["real"], colnames=["predicted"]
+        )
+        sns.heatmap(conf, annot=True, annot_kws={"size": 12})
 
-        # Plotar os dados
-        plot_data(data_array, gesture)
-    else:
-        print(f"Dados insuficientes para classificação: {len(data_buffer)} amostras.")
-        sleep(0.01)  # Evita uso excessivo de CPU
+    async def main(self):
+        await self.scanByMac("DF:DE:EA:97:12:6F")
 
-    data_buffer.clear()
-    gesture_detected = None
-
-
-def plot_data(data_array, gesture):
-    plt.figure(figsize=(10, 6))
-    x_data = range(len(data_array))
-    for i in range(FEATURE_COUNT):
-        plt.plot(x_data, data_array[:, i], label=f"Feature {i + 1}")
-    plt.legend()
-    plt.xlabel("Amostra")
-    plt.ylabel("Valor")
-    plt.title(f"Dados do Sensor - Gesto Detectado: {gesture}")
-    plt.show()
+        if self.BLEDevice is not None:
+            self.device = device_model.DeviceModel("MyBle5.0", self.BLEDevice, self.updateData)
+            await self.device.openDevice()
+        else:
+            print("This BLEDevice was not found!!")
 
 
 if __name__ == "__main__":
-    # 方式一：广播搜索和连接蓝牙设备
-    # Method 1:Broadcast search and connect Bluetooth devices
-    # asyncio.run(scan())
-
-    # # 方式二：指定MAC地址搜索并连接设备
-    # # Method 2: Specify MAC address to search and connect devices
-    asyncio.run(scanByMac("DF:DE:EA:97:12:6F"))
-
-    model = load_model(MODEL_PATH)
-
-    if BLEDevice is not None:
-        # 创建设备 Create device
-        device = device_model.DeviceModel("MyBle5.0", BLEDevice, updateData)
-        # 开始连接设备 Start connecting devices
-        asyncio.run(device.openDevice())
-    else:
-        print("This BLEDevice was not found!!")
+    data_collector = DataCollector.__new__(DataCollector)
+    asyncio.run(data_collector.main())

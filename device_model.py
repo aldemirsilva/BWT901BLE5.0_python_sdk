@@ -54,53 +54,69 @@ class DeviceModel:
     # 打开设备 open Device
     async def openDevice(self):
         print("Opening device......")
-        # 获取设备的服务和特征 Obtain the services and characteristic of the device
-        async with bleak.BleakClient(self.BLEDevice, timeout=15) as client:
-            self.client = client
-            self.isOpen = True
-            # 设备UUID常量 Device UUID constant
-            target_service_uuid = "0000ffe5-0000-1000-8000-00805f9a34fb"
-            target_characteristic_uuid_read = "0000ffe4-0000-1000-8000-00805f9a34fb"
-            target_characteristic_uuid_write = "0000ffe9-0000-1000-8000-00805f9a34fb"
-            notify_characteristic = None
+        try:
+            async with bleak.BleakClient(self.BLEDevice, timeout=15) as client:
+                self.client = client
+                self.isOpen = True
+                async with bleak.BleakClient(self.BLEDevice, timeout=15) as client:
+                    self.client = client
+                    self.isOpen = True
+                    # 设备UUID常量 Device UUID constant
+                    target_service_uuid = "0000ffe5-0000-1000-8000-00805f9a34fb"
+                    target_characteristic_uuid_read = (
+                        "0000ffe4-0000-1000-8000-00805f9a34fb"
+                    )
+                    target_characteristic_uuid_write = (
+                        "0000ffe9-0000-1000-8000-00805f9a34fb"
+                    )
+                    notify_characteristic = None
 
-            print("Matching services......")
-            for service in client.services:
-                if service.uuid == target_service_uuid:
-                    print(f"Service: {service}")
-                    print("Matching characteristic......")
-                    for characteristic in service.characteristics:
-                        if characteristic.uuid == target_characteristic_uuid_read:
-                            notify_characteristic = characteristic
-                        if characteristic.uuid == target_characteristic_uuid_write:
-                            self.writer_characteristic = characteristic
+                    print("Matching services......")
+                    for service in client.services:
+                        if service.uuid == target_service_uuid:
+                            print(f"Service: {service}")
+                            print("Matching characteristic......")
+                            for characteristic in service.characteristics:
+                                if (
+                                    characteristic.uuid
+                                    == target_characteristic_uuid_read
+                                ):
+                                    notify_characteristic = characteristic
+                                if (
+                                    characteristic.uuid
+                                    == target_characteristic_uuid_write
+                                ):
+                                    self.writer_characteristic = characteristic
+                            if notify_characteristic:
+                                break
+
+                    if self.writer_characteristic:
+                        # 读取磁场四元数 Reading magnetic field quaternions
+                        print("Reading magnetic field quaternions")
+                        await asyncio.sleep(3)
+                        asyncio.create_task(self.sendDataTh())
+
                     if notify_characteristic:
-                        break
+                        print(f"Characteristic: {notify_characteristic}")
+                        # 设置通知以接收数据 Set up notifications to receive data
+                        await client.start_notify(
+                            notify_characteristic.uuid, self.onDataReceived
+                        )
 
-            if self.writer_characteristic:
-                # 读取磁场四元数 Reading magnetic field quaternions
-                print("Reading magnetic field quaternions")
-                await asyncio.sleep(3)
-                asyncio.create_task(self.sendDataTh())
-
-            if notify_characteristic:
-                print(f"Characteristic: {notify_characteristic}")
-                # 设置通知以接收数据 Set up notifications to receive data
-                await client.start_notify(
-                    notify_characteristic.uuid, self.onDataReceived
-                )
-
-                # 保持连接打开 Keep connected and open
-                try:
-                    while self.isOpen:
-                        await asyncio.sleep(1)
-                except asyncio.CancelledError:
-                    pass
-                finally:
-                    # 在退出时停止通知 Stop notification on exit
-                    await client.stop_notify(notify_characteristic.uuid)
-            else:
-                print("No matching services or characteristic found")
+                        # 保持连接打开 Keep connected and open
+                        try:
+                            while self.isOpen and self.client.is_connected:
+                                await asyncio.sleep(1)
+                        except asyncio.CancelledError:
+                            pass
+                        finally:
+                            # 在退出时停止通知 Stop notification on exit
+                            await client.stop_notify(notify_characteristic.uuid)
+                    else:
+                        print("No matching services or characteristic found")
+        except Exception as ex:
+            print(f"Failed to connect to device: {ex}")
+            self.isOpen = False
 
     # 关闭设备  close Device
     def closeDevice(self):
@@ -153,7 +169,7 @@ class DeviceModel:
             self.set("AngX", round(AngX, 3))
             self.set("AngY", round(AngY, 3))
             self.set("AngZ", round(AngZ, 3))
-            self.callback_method(self)
+            self.callback_method
         else:
             # 磁场 magnetic field
             if Bytes[2] == 0x3A:
@@ -193,7 +209,7 @@ class DeviceModel:
                     self.writer_characteristic.uuid, bytes(data)
                 )
         except Exception as ex:
-            print(ex)
+            print(f"Failed to send data: {ex}")
 
     # 读取寄存器 read register
     async def readReg(self, regAddr):
