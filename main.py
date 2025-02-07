@@ -12,7 +12,6 @@ from tqdm import tqdm
 
 class DataCollector:
     def __init__(self):
-        self.device = None
         self.devices = list()
         self.BLEDevice = None
         self.data_buffer = list()
@@ -72,8 +71,8 @@ class DataCollector:
                 for _ in tqdm(range(0, 5)):
                     await asyncio.sleep(1)  # Use asyncio.sleep
 
-                while len(self.data_buffer) < self.WINDOW_SIZE:
-                    await asyncio.sleep(0.01)  # Pausa para não consumir muitos recursos
+                # while len(self.data_buffer) < self.WINDOW_SIZE:
+                #     await asyncio.sleep(0.01)  # Pausa para não consumir muitos recursos
 
                 self.classify(gesture)
                 self.data_buffer.clear()  # Limpa o buffer *após* classificar cada gesto
@@ -162,11 +161,11 @@ class DataCollector:
         await self.scanByMac("DF:DE:EA:97:12:6F")
 
         if self.BLEDevice is not None:
-            self.device = device_model.DeviceModel(
+            device = device_model.DeviceModel(
                 "MyBle5.0", self.BLEDevice, self.updateData
             )
-            await self.device.openDevice()
-            await self.collect_and_classify(self.device, real=[i for i in range(8)])
+            await device.openDevice()
+            await self.collect_and_classify(device, real=[i for i in range(8)])
         else:
             print("This BLEDevice was not found!!")
 
