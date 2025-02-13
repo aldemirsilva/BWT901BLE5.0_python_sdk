@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import time
 from sklearn.preprocessing import StandardScaler
 from tensorflow.keras.models import load_model
 from tqdm import tqdm
@@ -158,7 +159,8 @@ class DataCollector:
         sns.heatmap(conf, annot=True, annot_kws={"size": 12})
 
     async def main(self):
-        await self.scanByMac("DF:DE:EA:97:12:6F")
+        # await self.scanByMac("DF:DE:EA:97:12:6F")
+        await self.scanByMac("C0:87:95:47:FC:4B")
 
         if self.BLEDevice is not None:
             device = device_model.DeviceModel(
