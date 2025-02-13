@@ -157,7 +157,8 @@ if __name__ == "__main__":
 
     # # 方式二：指定MAC地址搜索并连接设备
     # # Method 2: Specify MAC address to search and connect devices
-    asyncio.run(scanByMac("DF:DE:EA:97:12:6F"))
+    # asyncio.run(scanByMac("DF:DE:EA:97:12:6F"))
+    asyncio.run(scanByMac("C0:87:95:47:FC:4B"))
 
     model = load_model(MODEL_PATH)
 
