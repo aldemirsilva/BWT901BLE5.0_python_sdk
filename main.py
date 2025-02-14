@@ -1,20 +1,16 @@
 import asyncio
 import bleak
 import device_model
-import numpy as np
-from tensorflow.keras.models import load_model
-from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
+from tensorflow.keras.models import load_model
+from sklearn.metrics import confusion_matrix
+from sklearn.preprocessing import StandardScaler
 from time import sleep
 from tqdm import tqdm
 
-# 扫描到的设备 Scanned devices
-devices = []
-
-# 蓝牙设备 BLEDevice
-BLEDevice = None
-
-MODEL_PATH = "modelo_gestos.h5"
 FEATURE_COUNT = 6
 WINDOW_SIZE = 150
 
@@ -27,82 +23,77 @@ scaler.scale_ = np.array(
     [0.9701005, 0.94347113, 0.98497283, 0.9526623, 0.9534778, 0.96096903]
 )
 
-# Buffer para armazenar os dados
-data_buffer = list()
 
-# Variável para armazenar o gesto detectado
-gesture_detected = None
-
-
-# 扫描蓝牙设备并过滤名称
 # Scan Bluetooth devices and filter names
 async def scan():
-    global devices
-    global BLEDevice
     find = []
     print("Searching for Bluetooth devices......")
     try:
         devices = await bleak.BleakScanner.discover(timeout=20.0)
         print("Search ended")
-        for d in devices:
-            if d.name is not None and "WT" in d.name:
-                find.append(d)
-                print(d)
+        for device in devices:
+            if device.name is not None and "WT" in device.name:
+                find.append(device)
+                print(device)
         if len(find) == 0:
             print("No devices found in this search!")
         else:
             user_input = input(
                 "Please enter the Mac address you want to connect to (e.g. DF:E9:1F:2C:BD:59)："
             )
-            for d in devices:
-                if d.address == user_input:
-                    BLEDevice = d
-                    break
+            for device in devices:
+                if device.address == user_input:
+                    return device
     except Exception as ex:
         print("Bluetooth search failed to start")
         print(ex)
 
 
-# 指定MAC地址搜索并连接设备
 # Specify MAC address to search and connect devices
 async def scanByMac(device_mac):
-    global BLEDevice
     print("Searching for Bluetooth devices......")
     BLEDevice = await bleak.BleakScanner.find_device_by_address(device_mac, timeout=20)
+    return BLEDevice
 
 
-# 数据更新时会调用此方法 This method will be called when data is updated
-def updateData(DeviceModel):
-    # 直接打印出设备数据字典 Directly print out the device data dictionary
-    # print(DeviceModel.deviceData)
+def colect(DeviceModel):
+    coletas = 2
+    data_buffer = []
+    y_true = []
+    y_pred = []
+    for gesture in [i for i in range(0, 8)]:
+        for j in range(0, coletas):
+            y_true.append(gesture)
+            while len(data_buffer) < WINDOW_SIZE:
+                # if len(data_buffer) == 0:
+                #     desc = f"Iniciando coleta do gesto {gesture} (Coleta {j + 1} de {coletas}) em 5 segundos"
+                #     for _ in tqdm(range(0, 5), desc=desc):
+                #         sleep(1)
 
-    # 获得X轴加速度 Obtain X-axis acceleration
-    # print(DeviceModel.get("AccX"))
+                data_buffer.append(
+                    [
+                        DeviceModel.get("AccX"),
+                        DeviceModel.get("AccY"),
+                        DeviceModel.get("AccZ"),
+                        DeviceModel.get("AsX"),
+                        DeviceModel.get("AsY"),
+                        DeviceModel.get("AsZ"),
+                    ]
+                )
 
-    global data_buffer, gesture_detected
+                # sleep(0.05)
 
-    if len(data_buffer) == 0:
-        for _ in tqdm(range(0, 5), desc="Iniciando coleta em 5 segundos"):
-            sleep(1)
+            y_pred.append(classify(data_buffer))
+            data_buffer = []
 
-    data_buffer.append(
-        [
-            DeviceModel.get("AccX"),
-            DeviceModel.get("AccY"),
-            DeviceModel.get("AccZ"),
-            DeviceModel.get("AsX"),
-            DeviceModel.get("AsY"),
-            DeviceModel.get("AsZ"),
-        ]
-    )
-
-    if len(data_buffer) >= WINDOW_SIZE:
-        classify()
+    conf = confusion_matrix(y_true, y_pred) # , labels=[0, 1, 2, 3, 4, 5, 6, 7])
+    sns.heatmap(conf, annot=True, annot_kws={"size": 12})
+    plt.show()
+    # plot_confusion_matrix(dict(real=y_true, predicted=y_pred))
 
 
-def classify():
-    global data_buffer, gesture_detected
-    if len(data_buffer) >= WINDOW_SIZE:
+def classify(data_buffer):
+    if len(data_buffer) == WINDOW_SIZE:
         print("Coleta concluída. Processando dados...")
         print(f"Número de amostras coletadas: {len(data_buffer)}")
         # Convert to numpy array
@@ -124,18 +115,17 @@ def classify():
         prediction = model.predict(data_normalized)
         print("Distribuição das probabilidades:", prediction)
 
-        gesture = np.argmax(prediction, axis=1)[0]
-        gesture_detected = gesture
-        print(f"Gesto detectado: {gesture}")
+        gesture_detected = np.argmax(prediction, axis=1)[0]
+        print(f"Gesto detectado: {gesture_detected}")
 
         # Plotar os dados
-        plot_data(data_array, gesture)
+        plot_data(data_array, gesture_detected)
+        return gesture_detected
     else:
         print(f"Dados insuficientes para classificação: {len(data_buffer)} amostras.")
         sleep(0.01)  # Evita uso excessivo de CPU
 
-    data_buffer.clear()
-    gesture_detected = None
+    return None
 
 
 def plot_data(data_array, gesture):
@@ -150,22 +140,24 @@ def plot_data(data_array, gesture):
     plt.show()
 
 
+def plot_confusion_matrix(results_data: dict):
+    df = pd.DataFrame(results_data, columns=["real", "predicted"])
+    conf = pd.crosstab(df["real"], df["predicted"], rownames=["real"], colnames=["predicted"])
+    sns.heatmap(conf, annot=True, annot_kws={"size": 12})
+
+
 if __name__ == "__main__":
-    # 方式一：广播搜索和连接蓝牙设备
     # Method 1:Broadcast search and connect Bluetooth devices
     # asyncio.run(scan())
 
-    # # 方式二：指定MAC地址搜索并连接设备
     # # Method 2: Specify MAC address to search and connect devices
     # asyncio.run(scanByMac("DF:DE:EA:97:12:6F"))
-    asyncio.run(scanByMac("C0:87:95:47:FC:4B"))
+    BLEDevice = asyncio.run(scanByMac("C0:87:95:47:FC:4B"))
 
-    model = load_model(MODEL_PATH)
+    model = load_model("modelo_gestos.h5")
 
     if BLEDevice is not None:
-        # 创建设备 Create device
-        device = device_model.DeviceModel("MyBle5.0", BLEDevice, updateData)
-        # 开始连接设备 Start connecting devices
+        device = device_model.DeviceModel("MyBle5.0", BLEDevice, colect)
         asyncio.run(device.openDevice())
     else:
         print("This BLEDevice was not found!!")
