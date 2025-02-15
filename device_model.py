@@ -2,63 +2,60 @@ import bleak
 import asyncio
 
 
-# 设备实例 Device instance
+# Device instance
 class DeviceModel:
-    # region 属性 attribute
-    # 设备名称 deviceName
-    deviceName = "我的设备"
+    # deviceName
+    deviceName = "My device"
 
-    # 设备数据字典 Device Data Dictionary
+    # Device Data Dictionary
     deviceData = {}
 
-    # 设备是否开启
+    # Is the device turned on?
     isOpen = False
 
-    # 临时数组 Temporary array
+    # Temporary array
     TempBytes = []
 
-    # endregion
+    # Data buffer array
+    data_buffer = []
 
     def __init__(self, deviceName, BLEDevice, callback_method):
         print("Initialize device model")
-        # 设备名称（自定义） Device Name
-        self.deviceName = deviceName
         self.BLEDevice = BLEDevice
-        self.client = None
-        self.writer_characteristic = None
-        self.isOpen = False
         self.callback_method = callback_method
+        self.client = None
         self.deviceData = {}
+        self.deviceName = deviceName
+        self.isOpen = False
+        self.writer_characteristic = None
 
-    # region 获取设备数据 Obtain device data
-    # 设置设备数据 Set device data
+    # Set device data
     def set(self, key, value):
-        # 将设备数据存到键值 Saving device data to key values
+        # Saving device data to key values
         self.deviceData[key] = value
 
-    # 获得设备数据 Obtain device data
+    # Obtain device data
     def get(self, key):
-        # 从键值中获取数据，没有则返回None Obtaining data from key values
+        # Get data from the key value, return None if there is no data
         if key in self.deviceData:
             return self.deviceData[key]
         else:
             return None
 
-    # 删除设备数据 Delete device data
+    # Delete device data
     def remove(self, key):
-        # 删除设备键值
+        # Deleting a device key
         del self.deviceData[key]
 
-    # endregion
-
-    # 打开设备 open Device
+    # open Device
     async def openDevice(self):
-        print("Opening device......")
         try:
+            print("Opening device......")
+            # Obtain the services and characteristic of the device
             async with bleak.BleakClient(self.BLEDevice, timeout=15) as client:
                 self.client = client
                 self.isOpen = True
-                # 设备UUID常量 Device UUID constant
+                # Device UUID constant
                 target_service_uuid = "0000ffe5-0000-1000-8000-00805f9a34fb"
                 target_characteristic_uuid_read = "0000ffe4-0000-1000-8000-00805f9a34fb"
                 target_characteristic_uuid_write = (
@@ -80,36 +77,36 @@ class DeviceModel:
                             break
 
                 if self.writer_characteristic:
-                    # 读取磁场四元数 Reading magnetic field quaternions
+                    # Reading magnetic field quaternions
                     print("Reading magnetic field quaternions")
                     await asyncio.sleep(3)
                     asyncio.create_task(self.sendDataTh())
 
                 if notify_characteristic:
                     print(f"Characteristic: {notify_characteristic}")
-                    # 设置通知以接收数据 Set up notifications to receive data
+                    # Set up notifications to receive data
                     await client.start_notify(
                         notify_characteristic.uuid, self.onDataReceived
                     )
 
-                    # 保持连接打开 Keep connected and open
+                    # Keep connected and open
                     try:
-                        while self.isOpen and self.client.is_connected:
+                        while self.isOpen:
                             await asyncio.sleep(1)
                     except asyncio.CancelledError:
                         pass
                     except Exception as ex:
                         print(f"Connection error: {ex}")
                     finally:
-                        # 在退出时停止通知 Stop notification on exit
+                        # Stop notification on exit
                         await client.stop_notify(notify_characteristic.uuid)
                 else:
                     print("No matching services or characteristic found")
         except Exception as ex:
             print(f"Failed to connect to device: {ex}")
-            self.isOpen = False
+            self.closeDevice()
 
-    # 关闭设备  close Device
+    # close Device
     def closeDevice(self):
         self.isOpen = False
         print("The device is turned off")
@@ -121,8 +118,7 @@ class DeviceModel:
             await self.readReg(0x51)
             await asyncio.sleep(0.1)
 
-    # region 数据解析 data analysis
-    # 串口数据处理  Serial port data processing
+    # Serial port data processing
     def onDataReceived(self, sender, data):
         tempdata = bytes.fromhex(data.hex())
         for var in tempdata:
@@ -138,9 +134,8 @@ class DeviceModel:
             if len(self.TempBytes) == 20:
                 self.processData(self.TempBytes)
                 self.TempBytes.clear()
-                self.callback_method(self)
 
-    # 数据解析 data analysis
+    # data analysis
     def processData(self, Bytes):
         if Bytes[1] == 0x61:
             Ax = self.getSignInt16(Bytes[3] << 8 | Bytes[2]) / 32768 * 16
@@ -161,9 +156,9 @@ class DeviceModel:
             self.set("AngX", round(AngX, 3))
             self.set("AngY", round(AngY, 3))
             self.set("AngZ", round(AngZ, 3))
-            self.callback_method(self)
+            self.callback_method(self, self.data_buffer)
         else:
-            # 磁场 magnetic field
+            # magnetic field
             if Bytes[2] == 0x3A:
                 Hx = self.getSignInt16(Bytes[5] << 8 | Bytes[4]) / 120
                 Hy = self.getSignInt16(Bytes[7] << 8 | Bytes[6]) / 120
@@ -171,7 +166,7 @@ class DeviceModel:
                 self.set("HX", round(Hx, 3))
                 self.set("HY", round(Hy, 3))
                 self.set("HZ", round(Hz, 3))
-            # 四元数 Quaternion
+            # Quaternion
             elif Bytes[2] == 0x51:
                 Q0 = self.getSignInt16(Bytes[5] << 8 | Bytes[4]) / 32768
                 Q1 = self.getSignInt16(Bytes[7] << 8 | Bytes[6]) / 32768
@@ -184,52 +179,42 @@ class DeviceModel:
             else:
                 pass
 
-    # 获得int16有符号数 Obtain int16 signed number
+    # Obtain int16 signed number
     @staticmethod
     def getSignInt16(num):
         if num >= pow(2, 15):
             num -= pow(2, 16)
         return num
 
-    # endregion
-
-    # 发送串口数据 Sending serial port data
+    # Send serial port data
     async def sendData(self, data):
         try:
-            if (
-                self.client
-                and self.client.is_connected
-                and self.writer_characteristic is not None
-            ):
+            if self.client.is_connected and self.writer_characteristic is not None:
                 await self.client.write_gatt_char(
                     self.writer_characteristic.uuid, bytes(data)
                 )
-            else:
-                print(
-                    "Device is not connected or writer characteristic is not available."
-                )
         except Exception as ex:
-            print(f"Failed to send data: {ex}")
+            print(ex)
 
-    # 读取寄存器 read register
+    # read register
     async def readReg(self, regAddr):
-        # 封装读取指令并向串口发送数据 Encapsulate read instructions and send data to the serial port
+        # Encapsulate read instructions and send data to the serial port
         await self.sendData(self.get_readBytes(regAddr))
 
-    # 写入寄存器 Write Register
+    # Write Register
     async def writeReg(self, regAddr, sValue):
-        # 解锁 unlock
+        # unlock
         self.unlock()
-        # 延迟100ms Delay 100ms
+        # Delay 100ms
         await asyncio.sleep(0.1)
-        # 封装写入指令并向串口发送数据
+        # Encapsulate write instructions and send data to the serial port
         await self.sendData(self.get_writeBytes(regAddr, sValue))
-        # 延迟100ms Delay 100ms
+        # Delay 100ms
         await asyncio.sleep(0.1)
-        # 保存 save
+        # save
         self.save()
 
-    # 读取指令封装 Read instruction encapsulation
+    # Read instruction package
     @staticmethod
     def get_readBytes(regAddr):
         # 初始化
@@ -241,7 +226,7 @@ class DeviceModel:
         tempBytes[4] = 0
         return tempBytes
 
-    # 写入指令封装 Write instruction encapsulation
+    # Write instruction package
     @staticmethod
     def get_writeBytes(regAddr, rValue):
         # 初始化
@@ -253,12 +238,12 @@ class DeviceModel:
         tempBytes[4] = rValue >> 8
         return tempBytes
 
-    # 解锁 unlock
+    # Unlock
     def unlock(self):
         cmd = self.get_writeBytes(0x69, 0xB588)
         self.sendData(cmd)
 
-    # 保存 save
+    # Save
     def save(self):
         cmd = self.get_writeBytes(0x00, 0x0000)
         self.sendData(cmd)
