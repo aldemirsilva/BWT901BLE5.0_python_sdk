@@ -16,15 +16,18 @@ class DeviceModel:
     # Temporary array
     TempBytes = []
 
+    # Data buffer array
+    data_buffer = []
+
     def __init__(self, deviceName, BLEDevice, callback_method):
         print("Initialize device model")
-        self.deviceName = deviceName
         self.BLEDevice = BLEDevice
-        self.client = None
-        self.writer_characteristic = None
-        self.isOpen = False
         self.callback_method = callback_method
+        self.client = None
         self.deviceData = {}
+        self.deviceName = deviceName
+        self.isOpen = False
+        self.writer_characteristic = None
 
     # Set device data
     def set(self, key, value):
@@ -46,54 +49,62 @@ class DeviceModel:
 
     # open Device
     async def openDevice(self):
-        print("Opening device......")
-        # Obtain the services and characteristic of the device
-        async with bleak.BleakClient(self.BLEDevice, timeout=15) as client:
-            self.client = client
-            self.isOpen = True
-            # Device UUID constant
-            target_service_uuid = "0000ffe5-0000-1000-8000-00805f9a34fb"
-            target_characteristic_uuid_read = "0000ffe4-0000-1000-8000-00805f9a34fb"
-            target_characteristic_uuid_write = "0000ffe9-0000-1000-8000-00805f9a34fb"
-            notify_characteristic = None
-
-            print("Matching services......")
-            for service in client.services:
-                if service.uuid == target_service_uuid:
-                    print(f"Service: {service}")
-                    print("Matching characteristic......")
-                    for characteristic in service.characteristics:
-                        if characteristic.uuid == target_characteristic_uuid_read:
-                            notify_characteristic = characteristic
-                        if characteristic.uuid == target_characteristic_uuid_write:
-                            self.writer_characteristic = characteristic
-                    if notify_characteristic:
-                        break
-
-            if self.writer_characteristic:
-                # Reading magnetic field quaternions
-                print("Reading magnetic field quaternions")
-                await asyncio.sleep(3)
-                asyncio.create_task(self.sendDataTh())
-
-            if notify_characteristic:
-                print(f"Characteristic: {notify_characteristic}")
-                # Set up notifications to receive data
-                await client.start_notify(
-                    notify_characteristic.uuid, self.onDataReceived
+        try:
+            print("Opening device......")
+            # Obtain the services and characteristic of the device
+            async with bleak.BleakClient(self.BLEDevice, timeout=15) as client:
+                self.client = client
+                self.isOpen = True
+                # Device UUID constant
+                target_service_uuid = "0000ffe5-0000-1000-8000-00805f9a34fb"
+                target_characteristic_uuid_read = "0000ffe4-0000-1000-8000-00805f9a34fb"
+                target_characteristic_uuid_write = (
+                    "0000ffe9-0000-1000-8000-00805f9a34fb"
                 )
+                notify_characteristic = None
 
-                # Keep connected and open
-                try:
-                    while self.isOpen:
-                        await asyncio.sleep(1)
-                except asyncio.CancelledError:
-                    pass
-                finally:
-                    # Stop notification on exit
-                    await client.stop_notify(notify_characteristic.uuid)
-            else:
-                print("No matching services or characteristic found")
+                print("Matching services......")
+                for service in client.services:
+                    if service.uuid == target_service_uuid:
+                        print(f"Service: {service}")
+                        print("Matching characteristic......")
+                        for characteristic in service.characteristics:
+                            if characteristic.uuid == target_characteristic_uuid_read:
+                                notify_characteristic = characteristic
+                            if characteristic.uuid == target_characteristic_uuid_write:
+                                self.writer_characteristic = characteristic
+                        if notify_characteristic:
+                            break
+
+                if self.writer_characteristic:
+                    # Reading magnetic field quaternions
+                    print("Reading magnetic field quaternions")
+                    await asyncio.sleep(3)
+                    asyncio.create_task(self.sendDataTh())
+
+                if notify_characteristic:
+                    print(f"Characteristic: {notify_characteristic}")
+                    # Set up notifications to receive data
+                    await client.start_notify(
+                        notify_characteristic.uuid, self.onDataReceived
+                    )
+
+                    # Keep connected and open
+                    try:
+                        while self.isOpen:
+                            await asyncio.sleep(1)
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception as ex:
+                        print(f"Connection error: {ex}")
+                    finally:
+                        # Stop notification on exit
+                        await client.stop_notify(notify_characteristic.uuid)
+                else:
+                    print("No matching services or characteristic found")
+        except Exception as ex:
+            print(f"Failed to connect to device: {ex}")
+            self.closeDevice()
 
     # close Device
     def closeDevice(self):
@@ -145,7 +156,7 @@ class DeviceModel:
             self.set("AngX", round(AngX, 3))
             self.set("AngY", round(AngY, 3))
             self.set("AngZ", round(AngZ, 3))
-            self.callback_method(self)
+            self.callback_method(self, self.data_buffer)
         else:
             # magnetic field
             if Bytes[2] == 0x3A:
