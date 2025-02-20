@@ -59,7 +59,10 @@ class DataCollector:
 
     def updateData(self, DeviceModel, data_buffer: list):
         if len(data_buffer) == 0:
-            for i in tqdm(range(0, 5), desc="Iniciando coleta em 5 segundos"):
+            self.y_true.append(
+                int(input("Digite o número do gesto que será capturado: "))
+            )
+            for i in tqdm(range(0, 4), desc="Iniciando coleta em 4 segundos"):
                 time.sleep(1)
         if len(data_buffer) == self.WINDOW_SIZE:
             self.y_pred.append(self.classify(data_buffer))
@@ -83,7 +86,6 @@ class DataCollector:
             )
 
     def classify(self, data_buffer: list):
-        self.y_true.append(int(input("Digite o número do gesto capturado: ")))
         if len(data_buffer) == self.WINDOW_SIZE:
             print("Coleta concluída. Processando dados...")
             print(f"Número de amostras coletadas: {len(data_buffer)}")
