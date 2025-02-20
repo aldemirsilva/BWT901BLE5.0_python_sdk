@@ -6,7 +6,7 @@ import numpy as np
 import seaborn as sns
 import time
 from sklearn.metrics import confusion_matrix
-from sklearn.preprocessing import StandardScaler
+# from sklearn.preprocessing import StandardScaler
 from tensorflow.keras.models import load_model
 from tqdm import tqdm
 
@@ -17,13 +17,13 @@ class DataCollector:
         self.devices = []
         self.FEATURE_COUNT = 6
         self.model = load_model("modelo_gestos.h5")
-        self.scaler = StandardScaler()
-        self.scaler.mean_ = np.array(
-            [0.97076255, 0.9445494, 0.97515005, 0.9454171, 0.94420373, 0.9554501]
-        )
-        self.scaler.scale_ = np.array(
-            [0.9701005, 0.94347113, 0.98497283, 0.9526623, 0.9534778, 0.96096903]
-        )
+        # self.scaler = StandardScaler()
+        # self.scaler.mean_ = np.array(
+        #     [0.97076255, 0.9445494, 0.97515005, 0.9454171, 0.94420373, 0.9554501]
+        # )
+        # self.scaler.scale_ = np.array(
+        #     [0.9701005, 0.94347113, 0.98497283, 0.9526623, 0.9534778, 0.96096903]
+        # )
         self.WINDOW_SIZE = 150
         self.y_pred = []
         self.y_true = []
@@ -59,7 +59,10 @@ class DataCollector:
 
     def updateData(self, DeviceModel, data_buffer: list):
         if len(data_buffer) == 0:
-            for i in tqdm(range(0, 5), desc="Iniciando coleta em 5 segundos"):
+            self.y_true.append(
+                int(input("Digite o número do gesto que será capturado: "))
+            )
+            for i in tqdm(range(0, 4), desc="Iniciando coleta em 4 segundos"):
                 time.sleep(1)
         if len(data_buffer) == self.WINDOW_SIZE:
             self.y_pred.append(self.classify(data_buffer))
@@ -83,7 +86,6 @@ class DataCollector:
             )
 
     def classify(self, data_buffer: list):
-        self.y_true.append(int(input("Digite o número do gesto capturado: ")))
         if len(data_buffer) == self.WINDOW_SIZE:
             print("Coleta concluída. Processando dados...")
             print(f"Número de amostras coletadas: {len(data_buffer)}")
@@ -95,14 +97,14 @@ class DataCollector:
             print(data_array[:5])
 
             # Normaliza os dados
-            data_normalized = self.scaler.transform(data_array)
+            # data_normalized = self.scaler.transform(data_array)
 
             # Mostrar dados normalizados para depuração
-            print("Dados normalizados (primeiras 5 amostras):")
-            print(data_normalized[:5])
+            # print("Dados normalizados (primeiras 5 amostras):")
+            # print(data_normalized[:5])
 
             # Classifica o gesto
-            data_normalized = data_normalized.reshape(
+            data_normalized = data_array.reshape(
                 1, self.WINDOW_SIZE, self.FEATURE_COUNT
             )
             prediction = self.model.predict(data_normalized)
@@ -146,6 +148,5 @@ if __name__ == "__main__":
             "MyBLE5.0", data_collector.BLEDevice, data_collector.updateData
         )
         asyncio.run(data_collector.device.openDevice())
-        # data_collector.collect_and_classify(device)
     else:
         print("BLE device was not found!!")
